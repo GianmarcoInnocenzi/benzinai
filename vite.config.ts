@@ -44,8 +44,9 @@ export default defineConfig({
             options: { cacheName: 'prezzi' },
           },
           {
-            // Tile e stili della mappa.
-            urlPattern: ({ url }) => url.hostname === 'tiles.openfreemap.org',
+            // Tile e stili della mappa (e immagini satellitari).
+            urlPattern: ({ url }) =>
+              url.hostname === 'tiles.openfreemap.org' || url.hostname === 'server.arcgisonline.com',
             handler: 'CacheFirst',
             options: {
               cacheName: 'mappa',

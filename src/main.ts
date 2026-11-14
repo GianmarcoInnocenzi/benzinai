@@ -1,16 +1,24 @@
 import './style.css';
 import { PROXY_URL } from './config';
-import { allStations, applySnapshot, ensureTiles, hasTiles, loadMeta, type Box } from './data';
+import { allStations, applySnapshot, ensureTiles, loadMeta, type Box } from './data';
 import { downloadPrices } from './update';
-import { loadState, matches, mountFilters, priceOf } from './filters';
+import { activeCount, emptyState, matches, mountFilters, priceOf } from './filters';
 import { createMap, maplibregl, setPins, type Pin } from './map';
 import { FUELS, type Meta, type Station } from './types';
 
 const MIN_ZOOM = 10; // sotto questo zoom non si caricano/mostrano i distributori
 const LAST_POS = 'benzinai.lastPos';
+const SATELLITE = 'benzinai.satellite';
 
-const statusEl = document.getElementById('status') as HTMLButtonElement;
-const setStatus = (text: string) => (statusEl.textContent = text);
+// ── Avvisi: compaiono in alto sotto la barra e spariscono da soli ──────────
+const toastEl = document.getElementById('toast') as HTMLButtonElement;
+let toastTimer: number | undefined;
+function toast(text: string, ms = 5000): void {
+  toastEl.textContent = text;
+  toastEl.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (toastEl.hidden = true), ms);
+}
 
 function lastPosition(): { center: [number, number]; zoom: number } {
   try {
@@ -51,7 +59,11 @@ function popupContent(s: Station): HTMLElement {
     const pair = s.p[f.id];
     if (!pair) continue;
     const row = table.insertRow();
-    row.insertCell().textContent = f.label;
+    const name = row.insertCell();
+    name.append(f.label + ' ');
+    const unit = document.createElement('small');
+    unit.textContent = f.unit;
+    name.append(unit);
     for (const v of pair) row.insertCell().textContent = v === null ? '–' : v.toFixed(3);
   }
   root.append(table);
@@ -66,21 +78,29 @@ function popupContent(s: Station): HTMLElement {
 }
 
 async function start() {
-  const state = loadState();
+  const state = emptyState(); // si parte sempre senza filtri
   let meta: Meta | undefined;
   try {
     meta = await loadMeta();
   } catch (e) {
-    setStatus(e instanceof Error ? e.message : 'Errore nel caricamento dei dati');
+    toast(e instanceof Error ? e.message : 'Errore nel caricamento dei dati', 10000);
   }
 
   const byId = new Map<number, Station>();
   let cheapest: Station | null = null;
 
-  const { map, geolocate, refresh, ready } = createMap(
-    lastPosition().center,
-    lastPosition().zoom,
-    (id) => {
+  const readSatellite = () => {
+    try {
+      return localStorage.getItem(SATELLITE) === '1';
+    } catch {
+      return false;
+    }
+  };
+
+  const { map, geolocate, refresh, ready } = createMap({
+    ...lastPosition(),
+    satellite: readSatellite(),
+    onPinClick: (id) => {
       const s = byId.get(id);
       if (!s) return;
       new maplibregl.Popup({ offset: 14, maxWidth: '280px' })
@@ -88,16 +108,24 @@ async function start() {
         .setDOMContent(popupContent(s))
         .addTo(map);
     },
+    onSatelliteChange: (on) => {
+      try {
+        localStorage.setItem(SATELLITE, on ? '1' : '0');
+      } catch {
+        /* ignora */
+      }
+    },
     // Il pulsante ↻ compare solo se è configurato il proxy per scaricare dal MIMIT.
-    PROXY_URL ? () => void refreshPrices() : undefined,
-  );
+    onRefresh: PROXY_URL ? () => void refreshPrices() : undefined,
+  });
 
-  const render = () => {
+  /** Ridisegna i pin; con `announce` mostra anche il riepilogo in un avviso. */
+  const render = (announce = false) => {
     if (!meta) return;
     if (map.getZoom() < MIN_ZOOM) {
       setPins(map, []);
       cheapest = null;
-      setStatus('Avvicina la mappa o attiva la posizione');
+      if (announce) toast('Avvicina la mappa per vedere i distributori');
       return;
     }
 
@@ -110,65 +138,75 @@ async function start() {
         id: s.id,
         lng: s.lo,
         lat: s.la,
-        price: priceOf(s, state.fuel, state.mode)!,
-        t: 0,
+        price: priceOf(s, state.fuel, state.mode),
+        t: -1,
       });
     }
 
     // La scala dei colori si calcola sui distributori visibili a schermo.
     const bounds = map.getBounds();
     const inView = pins.filter((p) => bounds.contains([p.lng, p.lat]));
-    const sample = inView.length > 0 ? inView : pins;
-    const min = Math.min(...sample.map((p) => p.price));
-    const max = Math.max(...sample.map((p) => p.price));
+    const priced = (inView.length > 0 ? inView : pins).filter((p) => p.price !== null);
+    const min = Math.min(...priced.map((p) => p.price!));
+    const max = Math.max(...priced.map((p) => p.price!));
     for (const p of pins) {
+      if (p.price === null) continue;
       p.t = max > min ? Math.min(1, Math.max(0, (p.price - min) / (max - min))) : 0;
     }
     setPins(map, pins);
 
-    const best = inView.reduce<Pin | null>((a, p) => (!a || p.price < a.price ? p : a), null);
-    cheapest = best ? (byId.get(best.id) ?? null) : null;
-    const unit = FUELS.find((f) => f.id === state.fuel)!.unit;
-    setStatus(
-      best && cheapest
-        ? `${inView.length} distributori · migliore ${best.price.toFixed(3)} ${unit} (${cheapest.b}, ${cheapest.c}) · dati del ${formatDate(meta.updated)}`
-        : `Nessun distributore con questi filtri · dati del ${formatDate(meta.updated)}`,
+    const best = inView.reduce<Pin | null>(
+      (a, p) => (p.price !== null && (!a || p.price < a.price!) ? p : a),
+      null,
     );
+    cheapest = best ? (byId.get(best.id) ?? null) : null;
+
+    if (!announce) return;
+    if (inView.length === 0) {
+      toast(
+        activeCount(state) > 0
+          ? 'Nessun distributore in questa zona con questi filtri'
+          : 'Nessun distributore qui: allontana la mappa o spostati',
+      );
+    } else if (state.fuel && best && cheapest) {
+      const unit = FUELS.find((f) => f.id === state.fuel)!.unit;
+      toast(
+        `${inView.length} distributori · migliore ${best.price!.toFixed(3)} ${unit} (${cheapest.b}, ${cheapest.c}) · prezzi del ${formatDate(meta.updated)}`,
+      );
+    } else {
+      toast(`${inView.length} distributori in zona · scegli un carburante in Filtri per i prezzi`);
+    }
   };
 
   if (import.meta.env.DEV) (window as unknown as { __map: unknown }).__map = map; // per debug
 
-  // "Cerca qui": compare quando la mappa è stata spostata in una zona non ancora caricata.
+  // "Cerca qui": sempre visibile, a qualsiasi zoom. Carica la zona che stai guardando.
   const searchBtn = document.getElementById('search') as HTMLButtonElement;
-  const updateSearchBtn = () => {
-    // Sempre visibile quando la mappa è troppo lontana: il clic la avvicina e cerca.
-    searchBtn.hidden = !meta || (map.getZoom() >= MIN_ZOOM && hasTiles(viewBox()));
-  };
   const viewBox = (): Box => {
     const b = map.getBounds();
     return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
   };
-  const search = async (box: Box = viewBox()) => {
+  const search = async (box: Box = viewBox(), announce = true) => {
     if (!meta) return;
     searchBtn.disabled = true;
     searchBtn.textContent = 'Cerco…';
     const ok = await ensureTiles(box);
     searchBtn.disabled = false;
-    searchBtn.textContent = ok ? 'Cerca qui' : 'Riprova';
-    if (ok) {
-      render();
-      updateSearchBtn();
-    } else {
-      setStatus('Impossibile caricare i dati: controlla la connessione e riprova');
-      searchBtn.hidden = false;
-    }
-  };
-  const onMove = () => {
-    render();
-    updateSearchBtn();
+    searchBtn.textContent = 'Cerca qui';
+    if (ok) render(announce);
+    else toast('Impossibile caricare i dati: controlla la connessione e riprova', 8000);
   };
 
-  // Il pulsante sta sotto la barra dei filtri, di cui segue l'altezza.
+  // Avviso (una volta sola) quando la mappa è troppo lontana per mostrare i distributori.
+  let wasFar = map.getZoom() < MIN_ZOOM;
+  const onMove = () => {
+    const far = map.getZoom() < MIN_ZOOM;
+    if (far && !wasFar) toast('Avvicina la mappa per vedere i distributori', 3500);
+    wasFar = far;
+    render();
+  };
+
+  // La barra in alto può cambiare altezza: avvisi e pannello la seguono.
   const bar = document.getElementById('bar')!;
   const syncBarHeight = () =>
     document.documentElement.style.setProperty('--bar-h', `${bar.offsetHeight}px`);
@@ -178,17 +216,20 @@ async function start() {
   let filtersMounted = false;
   const mountFiltersOnce = () => {
     if (!meta || filtersMounted) return;
-    mountFilters(state, meta.brands, render);
+    // l'avviso con il riepilogo compare alla chiusura del pannello, non mentre è aperto
+    mountFilters(state, meta.brands, () => render(), () => render(true));
     filtersMounted = true;
   };
   mountFiltersOnce();
+  searchBtn.hidden = !meta;
 
   // Pulsante ↻: scarica i prezzi nuovi dal MIMIT (via proxy), li salva sul telefono
   // e ricarica la zona visibile.
   const refreshPrices = async () => {
     refresh?.setBusy(true);
-    setStatus('Aggiorno i prezzi… (circa 8 MB)');
+    toast('Aggiorno i prezzi… (circa 8 MB)', 30000);
     let note: string;
+    let ms = 7000;
     try {
       const built = await downloadPrices();
       if (meta && built.meta.updated < meta.updated) {
@@ -197,19 +238,25 @@ async function start() {
       const saved = await applySnapshot(built.meta, built.tiles);
       meta = built.meta;
       mountFiltersOnce();
-      await search();
-      note = `✓ Prezzi del ${formatDate(meta.updated)}${saved ? '' : ' (non salvati sul telefono)'}`;
+      searchBtn.hidden = false;
+      await search(viewBox(), false);
+      note = `✓ Prezzi aggiornati al ${formatDate(meta.updated)}${saved ? '' : ' (non salvati sul telefono)'}`;
     } catch (e) {
       note = `⚠ Aggiornamento non riuscito: ${e instanceof Error ? e.message : e}`;
+      ms = 10000;
       render();
     } finally {
       refresh?.setBusy(false);
     }
-    statusEl.textContent = `${note} · ${statusEl.textContent}`;
+    toast(note, ms);
   };
 
-  statusEl.addEventListener('click', () => {
-    if (cheapest) map.flyTo({ center: [cheapest.lo, cheapest.la], zoom: Math.max(map.getZoom(), 14) });
+  // Toccando l'avviso si va al distributore più economico (se c'è); poi sparisce.
+  toastEl.addEventListener('click', () => {
+    if (cheapest) {
+      map.flyTo({ center: [cheapest.lo, cheapest.la], zoom: Math.max(map.getZoom(), 14) });
+    }
+    toastEl.hidden = true;
   });
 
   geolocate.on('geolocate', (e: { coords: GeolocationCoordinates }) => {
@@ -217,15 +264,12 @@ async function start() {
     const { longitude: x, latitude: y } = e.coords;
     void search({ west: x - 0.2, east: x + 0.2, south: y - 0.2, north: y + 0.2 });
     try {
-      localStorage.setItem(
-        LAST_POS,
-        JSON.stringify({ lng: e.coords.longitude, lat: e.coords.latitude }),
-      );
+      localStorage.setItem(LAST_POS, JSON.stringify({ lng: x, lat: y }));
     } catch {
       /* ignora */
     }
   });
-  geolocate.on('error', () => setStatus('Posizione non disponibile: muovi la mappa a mano'));
+  geolocate.on('error', () => toast('Posizione non disponibile: muovi la mappa a mano', 6000));
 
   searchBtn.addEventListener('click', async () => {
     if (map.getZoom() < MIN_ZOOM) {
@@ -238,11 +282,15 @@ async function start() {
     }
     await search();
   });
+
   await ready;
   map.on('moveend', onMove);
   geolocate.trigger();
   if (map.getZoom() >= MIN_ZOOM) await search();
-  else onMove();
+  else {
+    render();
+    toast('Attiva la posizione o avvicina la mappa e premi "Cerca qui"', 6000);
+  }
 }
 
 void start();

@@ -1,46 +1,40 @@
 import { FUELS, MODES, type Fuel, type Mode, type Station } from './types';
 
 export interface FilterState {
-  fuel: Fuel;
-  mode: Mode;
+  /** null = nessun carburante scelto: si vedono tutti i distributori, senza prezzo sul pin */
+  fuel: Fuel | null;
+  /** null = self o servito, vale il prezzo più basso */
+  mode: Mode | null;
   /** marchi selezionati; vuoto = tutti */
   brands: string[];
 }
 
-const KEY = 'benzinai.filters';
+/** Stato di partenza: nessun filtro. */
+export const emptyState = (): FilterState => ({ fuel: null, mode: null, brands: [] });
 
-export function loadState(): FilterState {
-  const fallback: FilterState = { fuel: 'benzina', mode: 'self', brands: [] };
-  try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (!s) return fallback;
-    return {
-      fuel: FUELS.some((f) => f.id === s.fuel) ? s.fuel : fallback.fuel,
-      mode: MODES.some((m) => m.id === s.mode) ? s.mode : fallback.mode,
-      brands: Array.isArray(s.brands) ? s.brands.filter((b: unknown) => typeof b === 'string') : [],
-    };
-  } catch {
-    return fallback;
-  }
+export function activeCount(state: FilterState): number {
+  return (state.fuel ? 1 : 0) + (state.mode ? 1 : 0) + state.brands.length;
 }
 
-function save(state: FilterState): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* storage non disponibile: pazienza */
-  }
-}
-
-export function priceOf(s: Station, fuel: Fuel, mode: Mode): number | null {
+export function priceOf(s: Station, fuel: Fuel | null, mode: Mode | null): number | null {
+  if (!fuel) return null;
   const pair = s.p[fuel];
   if (!pair) return null;
-  return mode === 'self' ? pair[0] : pair[1];
+  if (mode === 'self') return pair[0];
+  if (mode === 'servito') return pair[1];
+  const values = pair.filter((v): v is number => v !== null);
+  return values.length > 0 ? Math.min(...values) : null;
 }
 
 export function matches(s: Station, state: FilterState): boolean {
   if (state.brands.length > 0 && !state.brands.includes(s.b)) return false;
-  return priceOf(s, state.fuel, state.mode) !== null;
+  if (state.fuel) return priceOf(s, state.fuel, state.mode) !== null;
+  if (state.mode) {
+    // nessun carburante scelto ma self/servito sì: basta che offra quel servizio per qualche carburante
+    const slot = state.mode === 'self' ? 0 : 1;
+    return Object.values(s.p).some((pair) => pair[slot] !== null);
+  }
+  return true;
 }
 
 function button(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
@@ -52,21 +46,36 @@ function button(label: string, active: boolean, onClick: () => void): HTMLButton
   return b;
 }
 
-/** Disegna i controlli dei filtri e chiama onChange a ogni modifica. */
+/** Disegna il pannello dei filtri e chiama onChange a ogni modifica. */
 export function mountFilters(
   state: FilterState,
   brands: string[],
   onChange: (s: FilterState) => void,
+  /** chiamata quando il pannello viene chiuso */
+  onClose: () => void,
 ): void {
+  const panel = document.getElementById('filters-panel')!;
+  const openBtn = document.getElementById('open-filters') as HTMLButtonElement;
+  const closeBtn = document.getElementById('close-filters')!;
+  const resetBtn = document.getElementById('reset-filters') as HTMLButtonElement;
+  const badge = document.getElementById('filter-count')!;
   const fuels = document.getElementById('fuels')!;
   const modes = document.getElementById('modes')!;
   const chips = document.getElementById('brands')!;
 
+  const setOpen = (open: boolean) => {
+    const wasOpen = !panel.hidden;
+    panel.hidden = !open;
+    openBtn.setAttribute('aria-expanded', String(open));
+    if (wasOpen && !open) onClose();
+  };
+
   const draw = () => {
+    // toccando di nuovo la voce già scelta, la si toglie
     fuels.replaceChildren(
       ...FUELS.map((f) =>
         button(f.label, state.fuel === f.id, () => {
-          state.fuel = f.id;
+          state.fuel = state.fuel === f.id ? null : f.id;
           change();
         }),
       ),
@@ -74,16 +83,12 @@ export function mountFilters(
     modes.replaceChildren(
       ...MODES.map((m) =>
         button(m.label, state.mode === m.id, () => {
-          state.mode = m.id;
+          state.mode = state.mode === m.id ? null : m.id;
           change();
         }),
       ),
     );
     chips.replaceChildren(
-      button('Tutti', state.brands.length === 0, () => {
-        state.brands = [];
-        change();
-      }),
       ...brands.map((b) =>
         button(b, state.brands.includes(b), () => {
           state.brands = state.brands.includes(b)
@@ -93,13 +98,25 @@ export function mountFilters(
         }),
       ),
     );
+    const n = activeCount(state);
+    badge.textContent = String(n);
+    badge.hidden = n === 0;
+    resetBtn.disabled = n === 0;
   };
 
   const change = () => {
-    save(state);
     draw();
     onChange(state);
   };
+
+  openBtn.addEventListener('click', () => setOpen(Boolean(panel.hidden)));
+  closeBtn.addEventListener('click', () => setOpen(false));
+  resetBtn.addEventListener('click', () => {
+    state.fuel = null;
+    state.mode = null;
+    state.brands = [];
+    change();
+  });
 
   draw();
 }
