@@ -1,0 +1,6 @@
+node_modules
+dist
+dev-dist
+public/data
+.DS_Store
+public/maplibre

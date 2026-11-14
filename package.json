@@ -1,0 +1,30 @@
+{
+  "name": "benzinai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "data": "tsx scripts/build-data.ts",
+    "icons": "tsx scripts/make-icons.ts",
+    "dev": "vite",
+    "dev:phone": "HTTPS=1 vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "copy-worker": "tsx scripts/copy-worker.ts",
+    "predev": "npm run copy-worker",
+    "predev:phone": "npm run copy-worker",
+    "prebuild": "npm run copy-worker"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vite-plugin-pwa": "^2.0.0"
+  }
+}

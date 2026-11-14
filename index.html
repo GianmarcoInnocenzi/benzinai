@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Benzinai</title>
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Benzinai" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <header id="bar">
+      <div class="row">
+        <div id="fuels" class="seg" role="group" aria-label="Carburante"></div>
+        <div id="modes" class="seg small" role="group" aria-label="Modalità"></div>
+      </div>
+      <div id="brands" class="chips" role="group" aria-label="Marchi"></div>
+    </header>
+
+    <button id="search" type="button" hidden>Cerca qui</button>
+
+    <button id="status" type="button"></button>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
