@@ -19,7 +19,12 @@ export interface Pin {
   price: number | null;
   /** 0 = il più economico visibile, 1 = il più caro, -1 = senza prezzo */
   t: number;
+  /** anteprima dei prezzi (una riga per carburante), mostrata da vicino quando non c'è un carburante scelto */
+  preview: string;
 }
+
+/** Zoom da cui compare l'anteprima dei prezzi sopra le palline. */
+export const PREVIEW_ZOOM = 13;
 
 const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
@@ -180,6 +185,28 @@ export function createMap(opts: MapOptions) {
         },
       });
 
+      // Anteprima dei prezzi (benzina/gasolio) quando non è scelto un carburante e si è abbastanza vicini.
+      map.addLayer({
+        id: 'pin-preview',
+        type: 'symbol',
+        source: SOURCE,
+        minzoom: PREVIEW_ZOOM,
+        layout: {
+          'text-field': ['get', 'preview'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 11,
+          'text-offset': [0, -1.1],
+          'text-anchor': 'bottom',
+          'text-line-height': 1.15,
+          'symbol-sort-key': ['get', 'price'],
+        },
+        paint: {
+          'text-color': '#111827',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 2,
+        },
+      });
+
       map.on('click', 'pin', (e: maplibregl.MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id;
         if (typeof id === 'number') opts.onPinClick(id);
@@ -205,6 +232,7 @@ export function setPins(map: maplibregl.Map, pins: Pin[]): void {
         price: p.price ?? 0,
         t: p.t,
         label: p.price === null ? '' : p.price.toFixed(3),
+        preview: p.preview,
       },
     })),
   });

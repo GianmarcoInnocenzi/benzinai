@@ -55,15 +55,21 @@ button {
   font-weight: 600;
 }
 
-#open-filters {
+#open-filters,
+#open-best {
   border: 1px solid var(--brand);
   background: #fff;
   color: var(--brand);
 }
 
-#open-filters[aria-expanded='true'] {
+#open-filters[aria-expanded='true'],
+#open-best[aria-expanded='true'] {
   background: var(--brand);
   color: #fff;
+}
+
+#open-best[hidden] {
+  display: none;
 }
 
 #filter-count {
@@ -103,7 +109,8 @@ button {
 
 /* ── Pannello dei filtri ───────────────────────────────────────── */
 
-#filters-panel {
+#filters-panel,
+#best-panel {
   position: fixed;
   top: var(--bar-h, 64px);
   left: 0;
@@ -119,11 +126,13 @@ button {
   border-radius: 0 0 16px 16px;
 }
 
-#filters-panel[hidden] {
+#filters-panel[hidden],
+#best-panel[hidden] {
   display: none;
 }
 
-#filters-panel h2 {
+#filters-panel h2,
+#best-panel h2 {
   margin: 12px 0 6px;
   font-size: 12px;
   font-weight: 700;
@@ -215,6 +224,71 @@ button {
   border-color: var(--brand);
   background: var(--brand);
   color: #fff;
+}
+
+/* ── Lista dei 3 migliori ──────────────────────────────────────── */
+
+#best-list {
+  margin: 10px 0 4px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.best-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+.best-item .rank {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 26px;
+  text-align: center;
+}
+
+.best-item .price {
+  flex: 0 0 auto;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.best-item .price small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.best-item .what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.best-item .what small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* ── Avviso in alto, sotto la barra: sparisce da solo ──────────── */

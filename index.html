@@ -22,20 +22,15 @@
       <button id="open-filters" type="button" aria-expanded="false" aria-controls="filters-panel">
         Filtri <span id="filter-count" hidden>0</span>
       </button>
+      <button id="open-best" type="button" aria-expanded="false" aria-controls="best-panel" hidden>
+        ★ Migliori
+      </button>
       <button id="search" type="button" hidden>Cerca qui</button>
     </header>
 
     <section id="filters-panel" hidden aria-label="Filtri">
       <h2>Carburante</h2>
       <div id="fuels" class="seg" role="group" aria-label="Carburante"></div>
-      <p class="hint">
-        <strong>GPL</strong>: gas di petrolio liquefatto, si paga al litro (€/l).
-        <strong>Metano</strong>: gas naturale compresso, si paga al chilo (€/kg).
-        Sono due carburanti diversi: serve un'auto predisposta.
-      </p>
-
-      <h2>Servizio</h2>
-      <div id="modes" class="seg" role="group" aria-label="Self o servito"></div>
 
       <h2>Marchio</h2>
       <div id="brands" class="chips" role="group" aria-label="Marchi"></div>
@@ -44,6 +39,13 @@
         <button id="reset-filters" type="button">Azzera filtri</button>
         <button id="close-filters" type="button" class="primary">Mostra risultati</button>
       </div>
+    </section>
+
+    <section id="best-panel" hidden aria-label="Migliori prezzi della zona">
+      <h2>Migliori prezzi sulla mappa</h2>
+      <div id="best-fuels" class="seg" role="group" aria-label="Carburante"></div>
+      <ol id="best-list"></ol>
+      <p id="best-empty" class="hint" hidden></p>
     </section>
 
     <button id="toast" type="button" hidden></button>

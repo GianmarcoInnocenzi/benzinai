@@ -1,43 +1,33 @@
-import { FUELS, MODES, type Fuel, type Mode, type Station } from './types';
+import { FUELS, type Fuel, type Station } from './types';
 
 export interface FilterState {
-  /** null = nessun carburante scelto: si vedono tutti i distributori, senza prezzo sul pin */
+  /** null = nessun carburante scelto: si vedono tutti i distributori */
   fuel: Fuel | null;
-  /** null = self o servito, vale il prezzo più basso */
-  mode: Mode | null;
   /** marchi selezionati; vuoto = tutti */
   brands: string[];
 }
 
 /** Stato di partenza: nessun filtro. */
-export const emptyState = (): FilterState => ({ fuel: null, mode: null, brands: [] });
+export const emptyState = (): FilterState => ({ fuel: null, brands: [] });
 
 export function activeCount(state: FilterState): number {
-  return (state.fuel ? 1 : 0) + (state.mode ? 1 : 0) + state.brands.length;
+  return (state.fuel ? 1 : 0) + state.brands.length;
 }
 
-export function priceOf(s: Station, fuel: Fuel | null, mode: Mode | null): number | null {
-  if (!fuel) return null;
+/** Prezzo più basso del carburante (self o servito, quello che costa meno). */
+export function priceOf(s: Station, fuel: Fuel): number | null {
   const pair = s.p[fuel];
   if (!pair) return null;
-  if (mode === 'self') return pair[0];
-  if (mode === 'servito') return pair[1];
   const values = pair.filter((v): v is number => v !== null);
   return values.length > 0 ? Math.min(...values) : null;
 }
 
 export function matches(s: Station, state: FilterState): boolean {
   if (state.brands.length > 0 && !state.brands.includes(s.b)) return false;
-  if (state.fuel) return priceOf(s, state.fuel, state.mode) !== null;
-  if (state.mode) {
-    // nessun carburante scelto ma self/servito sì: basta che offra quel servizio per qualche carburante
-    const slot = state.mode === 'self' ? 0 : 1;
-    return Object.values(s.p).some((pair) => pair[slot] !== null);
-  }
-  return true;
+  return state.fuel ? priceOf(s, state.fuel) !== null : true;
 }
 
-function button(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
+export function button(label: string, active: boolean, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
   b.type = 'button';
   b.textContent = label;
@@ -50,24 +40,34 @@ function button(label: string, active: boolean, onClick: () => void): HTMLButton
 export function mountFilters(
   state: FilterState,
   brands: string[],
-  onChange: (s: FilterState) => void,
-  /** chiamata quando il pannello viene chiuso */
-  onClose: () => void,
-): void {
+  handlers: {
+    onChange: (s: FilterState) => void;
+    /** chiamata quando l'utente chiude il pannello */
+    onClose: () => void;
+    /** chiamata quando l'utente apre il pannello */
+    onOpen: () => void;
+  },
+): { close: () => void } {
   const panel = document.getElementById('filters-panel')!;
   const openBtn = document.getElementById('open-filters') as HTMLButtonElement;
   const closeBtn = document.getElementById('close-filters')!;
   const resetBtn = document.getElementById('reset-filters') as HTMLButtonElement;
   const badge = document.getElementById('filter-count')!;
   const fuels = document.getElementById('fuels')!;
-  const modes = document.getElementById('modes')!;
   const chips = document.getElementById('brands')!;
 
-  const setOpen = (open: boolean) => {
-    const wasOpen = !panel.hidden;
+  /** Apre o chiude il pannello senza chiamare i gestori (uso interno e dall'esterno). */
+  const show = (open: boolean) => {
     panel.hidden = !open;
     openBtn.setAttribute('aria-expanded', String(open));
-    if (wasOpen && !open) onClose();
+  };
+
+  const userToggle = (open: boolean) => {
+    const wasOpen = !panel.hidden;
+    if (open === wasOpen) return;
+    if (open) handlers.onOpen();
+    show(open);
+    if (!open) handlers.onClose();
   };
 
   const draw = () => {
@@ -76,14 +76,6 @@ export function mountFilters(
       ...FUELS.map((f) =>
         button(f.label, state.fuel === f.id, () => {
           state.fuel = state.fuel === f.id ? null : f.id;
-          change();
-        }),
-      ),
-    );
-    modes.replaceChildren(
-      ...MODES.map((m) =>
-        button(m.label, state.mode === m.id, () => {
-          state.mode = state.mode === m.id ? null : m.id;
           change();
         }),
       ),
@@ -106,17 +98,17 @@ export function mountFilters(
 
   const change = () => {
     draw();
-    onChange(state);
+    handlers.onChange(state);
   };
 
-  openBtn.addEventListener('click', () => setOpen(Boolean(panel.hidden)));
-  closeBtn.addEventListener('click', () => setOpen(false));
+  openBtn.addEventListener('click', () => userToggle(Boolean(panel.hidden)));
+  closeBtn.addEventListener('click', () => userToggle(false));
   resetBtn.addEventListener('click', () => {
     state.fuel = null;
-    state.mode = null;
     state.brands = [];
     change();
   });
 
   draw();
+  return { close: () => show(false) };
 }

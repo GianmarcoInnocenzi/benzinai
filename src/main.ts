@@ -2,9 +2,10 @@ import './style.css';
 import { PROXY_URL } from './config';
 import { allStations, applySnapshot, ensureTiles, loadMeta, type Box } from './data';
 import { downloadPrices } from './update';
+import { mountBest, type BestItem } from './best';
 import { activeCount, emptyState, matches, mountFilters, priceOf } from './filters';
 import { createMap, maplibregl, setPins, type Pin } from './map';
-import { FUELS, type Meta, type Station } from './types';
+import { FUELS, type Fuel, type Meta, type Station } from './types';
 
 const MIN_ZOOM = 10; // sotto questo zoom non si caricano/mostrano i distributori
 const LAST_POS = 'benzinai.lastPos';
@@ -35,6 +36,19 @@ function lastPosition(): { center: [number, number]; zoom: number } {
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
+}
+
+/** Anteprima sul pin quando non c'è un carburante scelto: benzina e gasolio, una riga ciascuno. */
+function previewOf(s: Station): string {
+  const lines: string[] = [];
+  for (const [fuel, label] of [
+    ['benzina', 'Benz'],
+    ['gasolio', 'Gas'],
+  ] as const) {
+    const p = priceOf(s, fuel);
+    if (p !== null) lines.push(`${label} ${p.toFixed(3)}`);
+  }
+  return lines.join('\n');
 }
 
 function popupContent(s: Station): HTMLElement {
@@ -102,11 +116,7 @@ async function start() {
     satellite: readSatellite(),
     onPinClick: (id) => {
       const s = byId.get(id);
-      if (!s) return;
-      new maplibregl.Popup({ offset: 14, maxWidth: '280px' })
-        .setLngLat([s.lo, s.la])
-        .setDOMContent(popupContent(s))
-        .addTo(map);
+      if (s) showStation(s);
     },
     onSatelliteChange: (on) => {
       try {
@@ -118,6 +128,13 @@ async function start() {
     // Il pulsante ↻ compare solo se è configurato il proxy per scaricare dal MIMIT.
     onRefresh: PROXY_URL ? () => void refreshPrices() : undefined,
   });
+
+  const showStation = (s: Station) => {
+    new maplibregl.Popup({ offset: 14, maxWidth: '280px' })
+      .setLngLat([s.lo, s.la])
+      .setDOMContent(popupContent(s))
+      .addTo(map);
+  };
 
   /** Ridisegna i pin; con `announce` mostra anche il riepilogo in un avviso. */
   const render = (announce = false) => {
@@ -138,8 +155,9 @@ async function start() {
         id: s.id,
         lng: s.lo,
         lat: s.la,
-        price: priceOf(s, state.fuel, state.mode),
+        price: state.fuel ? priceOf(s, state.fuel) : null,
         t: -1,
+        preview: state.fuel ? '' : previewOf(s),
       });
     }
 
@@ -204,6 +222,7 @@ async function start() {
     if (far && !wasFar) toast('Avvicina la mappa per vedere i distributori', 3500);
     wasFar = far;
     render();
+    best?.refresh();
   };
 
   // La barra in alto può cambiare altezza: avvisi e pannello la seguono.
@@ -213,14 +232,46 @@ async function start() {
   new ResizeObserver(syncBarHeight).observe(bar);
   syncBarHeight();
 
-  let filtersMounted = false;
-  const mountFiltersOnce = () => {
-    if (!meta || filtersMounted) return;
-    // l'avviso con il riepilogo compare alla chiusura del pannello, non mentre è aperto
-    mountFilters(state, meta.brands, () => render(), () => render(true));
-    filtersMounted = true;
+  // I 3 distributori col prezzo più basso tra quelli visibili sulla mappa.
+  const getBest = (fuel: Fuel): BestItem[] | null => {
+    if (map.getZoom() < MIN_ZOOM) return null;
+    const b = map.getBounds();
+    const items: BestItem[] = [];
+    for (const s of allStations()) {
+      if (state.brands.length > 0 && !state.brands.includes(s.b)) continue;
+      if (!b.contains([s.lo, s.la])) continue;
+      const price = priceOf(s, fuel);
+      if (price !== null) items.push({ station: s, price });
+    }
+    return items.sort((a, z) => a.price - z.price).slice(0, 3);
   };
-  mountFiltersOnce();
+
+  let best: ReturnType<typeof mountBest> | undefined;
+  let filters: ReturnType<typeof mountFilters> | undefined;
+  const openBestBtn = document.getElementById('open-best') as HTMLButtonElement;
+  const mountPanelsOnce = () => {
+    if (!meta || filters) return;
+    // L'avviso con il riepilogo compare alla chiusura del pannello dei filtri, non mentre è aperto.
+    filters = mountFilters(state, meta.brands, {
+      onChange: () => {
+        render();
+        best?.refresh();
+      },
+      onClose: () => render(true),
+      onOpen: () => best?.close(),
+    });
+    best = mountBest({
+      getBest,
+      defaultFuel: () => state.fuel ?? 'benzina',
+      onOpen: () => filters?.close(),
+      onPick: (s) => {
+        map.flyTo({ center: [s.lo, s.la], zoom: Math.max(map.getZoom(), 15) });
+        showStation(s);
+      },
+    });
+    openBestBtn.hidden = false;
+  };
+  mountPanelsOnce();
   searchBtn.hidden = !meta;
 
   // Pulsante ↻: scarica i prezzi nuovi dal MIMIT (via proxy), li salva sul telefono
@@ -237,7 +288,7 @@ async function start() {
       }
       const saved = await applySnapshot(built.meta, built.tiles);
       meta = built.meta;
-      mountFiltersOnce();
+      mountPanelsOnce();
       searchBtn.hidden = false;
       await search(viewBox(), false);
       note = `✓ Prezzi aggiornati al ${formatDate(meta.updated)}${saved ? '' : ' (non salvati sul telefono)'}`;
