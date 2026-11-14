@@ -94,15 +94,25 @@ const MAX_TILES = 120; // protezione se la mappa è molto ampia
 
 /** Chiavi di tutte le tessere che toccano il riquadro (con un margine in gradi). */
 function keysFor(box: Box, pad = 0): string[] {
-  const x0 = Math.floor((box.west - pad) / tileSize);
-  const x1 = Math.floor((box.east + pad) / tileSize);
-  const y0 = Math.floor((box.south - pad) / tileSize);
-  const y1 = Math.floor((box.north + pad) / tileSize);
+  let { west, east, south, north } = box;
+  const tilesWide = (east - west + 2 * pad) / tileSize;
+  const tilesHigh = (north - south + 2 * pad) / tileSize;
+  if (tilesWide * tilesHigh > MAX_TILES) {
+    // Zona troppo ampia (schermo grande o zoom molto basso): ci si limita al centro.
+    const cx = (west + east) / 2;
+    const cy = (south + north) / 2;
+    const h = tileSize * 3;
+    [west, east, south, north] = [cx - h, cx + h, cy - h, cy + h];
+  }
+  const x0 = Math.floor((west - pad) / tileSize);
+  const x1 = Math.floor((east + pad) / tileSize);
+  const y0 = Math.floor((south - pad) / tileSize);
+  const y1 = Math.floor((north + pad) / tileSize);
   const keys: string[] = [];
   for (let x = x0; x <= x1; x++) {
     for (let y = y0; y <= y1; y++) keys.push(`${x}_${y}`);
   }
-  return keys.length > MAX_TILES ? [] : keys;
+  return keys;
 }
 
 /** true se tutta la zona visibile è già stata caricata. */

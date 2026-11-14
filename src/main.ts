@@ -141,7 +141,8 @@ async function start() {
   // "Cerca qui": compare quando la mappa è stata spostata in una zona non ancora caricata.
   const searchBtn = document.getElementById('search') as HTMLButtonElement;
   const updateSearchBtn = () => {
-    searchBtn.hidden = !meta || map.getZoom() < MIN_ZOOM || hasTiles(viewBox());
+    // Sempre visibile quando la mappa è troppo lontana: il clic la avvicina e cerca.
+    searchBtn.hidden = !meta || (map.getZoom() >= MIN_ZOOM && hasTiles(viewBox()));
   };
   const viewBox = (): Box => {
     const b = map.getBounds();
@@ -226,7 +227,17 @@ async function start() {
   });
   geolocate.on('error', () => setStatus('Posizione non disponibile: muovi la mappa a mano'));
 
-  searchBtn.addEventListener('click', () => void search());
+  searchBtn.addEventListener('click', async () => {
+    if (map.getZoom() < MIN_ZOOM) {
+      // Mappa troppo lontana per mostrare i distributori: avvicina sul centro, poi cerca.
+      searchBtn.disabled = true;
+      searchBtn.textContent = 'Cerco…';
+      const moved = new Promise<void>((resolve) => map.once('moveend', () => resolve()));
+      map.easeTo({ zoom: 12, duration: 600 });
+      await moved;
+    }
+    await search();
+  });
   await ready;
   map.on('moveend', onMove);
   geolocate.trigger();
