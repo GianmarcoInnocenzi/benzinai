@@ -162,6 +162,22 @@ body {
   bottom: calc(env(safe-area-inset-bottom) + 64px);
 }
 
+.refresh-ctrl button {
+  font-size: 20px;
+  line-height: 29px;
+  color: #333;
+}
+
+.refresh-ctrl button.busy {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .popup {
   font-size: 14px;
 }

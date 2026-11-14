@@ -1,22 +1,79 @@
+import { loadLocalMeta, loadLocalTile, saveSnapshot } from './store';
 import type { Meta, Station } from './types';
 
+/** Tessere già caricate in memoria. */
 const tiles = new Map<string, Station[]>();
 const inflight = new Map<string, Promise<void>>();
 let tileSize = 0.2;
+
+/**
+ * Da dove arrivano le tessere:
+ * - dati pubblicati con l'app (cartella data/), di default;
+ * - archivio locale del telefono, se i prezzi sono stati aggiornati con ↻ e sono più recenti;
+ * - `snapshot` in memoria, subito dopo un aggiornamento (anche se il salvataggio locale fallisce).
+ */
+let useLocal = false;
+let snapshot: Map<string, Station[]> | null = null;
 
 function isJson(r: Response): boolean {
   return r.ok && (r.headers.get('content-type') ?? '').includes('json');
 }
 
 export async function loadMeta(): Promise<Meta> {
-  const r = await fetch('data/meta.json');
-  if (!isJson(r)) throw new Error('Dati non trovati: esegui "npm run data"');
-  const meta: Meta = await r.json();
+  let remote: Meta | null = null;
+  try {
+    const r = await fetch('data/meta.json');
+    if (isJson(r)) remote = await r.json();
+  } catch {
+    /* offline: si prova con i dati locali */
+  }
+  let local: Meta | null = null;
+  try {
+    local = await loadLocalMeta();
+  } catch {
+    /* archivio locale non disponibile */
+  }
+
+  if (local && (!remote || local.updated > remote.updated)) {
+    useLocal = true;
+    tileSize = local.tileSize;
+    return local;
+  }
+  if (!remote) throw new Error('Dati non trovati: esegui "npm run data"');
+  tileSize = remote.tileSize;
+  return remote;
+}
+
+/**
+ * Adotta i prezzi appena scaricati dal telefono. Restituisce true se sono stati
+ * salvati anche sul telefono (altrimenti valgono solo finché l'app resta aperta).
+ */
+export async function applySnapshot(meta: Meta, fresh: Map<string, Station[]>): Promise<boolean> {
+  snapshot = fresh;
   tileSize = meta.tileSize;
-  return meta;
+  tiles.clear();
+  try {
+    await saveSnapshot(meta, fresh);
+    useLocal = true;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchTile(key: string): Promise<void> {
+  if (snapshot) {
+    tiles.set(key, snapshot.get(key) ?? []);
+    return;
+  }
+  if (useLocal) {
+    try {
+      tiles.set(key, (await loadLocalTile(key)) ?? []);
+    } catch {
+      /* ritenterà al prossimo movimento */
+    }
+    return;
+  }
   try {
     const r = await fetch(`data/tiles/${key}.json`);
     // Tessera assente = nessun impianto in quella cella.

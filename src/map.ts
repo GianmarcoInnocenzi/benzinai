@@ -19,10 +19,40 @@ export interface Pin {
 
 const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
+/** Pulsante ↻ "Aggiorna prezzi", nello stesso gruppo del pulsante della posizione. */
+export class RefreshControl implements maplibregl.IControl {
+  private readonly el = document.createElement('div');
+  private readonly button = document.createElement('button');
+
+  constructor(onClick: () => void) {
+    this.el.className = 'maplibregl-ctrl maplibregl-ctrl-group refresh-ctrl';
+    this.button.type = 'button';
+    this.button.textContent = '↻';
+    this.button.title = 'Aggiorna i prezzi';
+    this.button.setAttribute('aria-label', 'Aggiorna i prezzi');
+    this.button.addEventListener('click', onClick);
+    this.el.append(this.button);
+  }
+
+  setBusy(busy: boolean): void {
+    this.button.disabled = busy;
+    this.button.classList.toggle('busy', busy);
+  }
+
+  onAdd(): HTMLElement {
+    return this.el;
+  }
+
+  onRemove(): void {
+    this.el.remove();
+  }
+}
+
 export function createMap(
   center: [number, number],
   zoom: number,
   onPinClick: (id: number) => void,
+  onRefresh?: () => void,
 ) {
   const map = new maplibregl.Map({
     container: 'map',
@@ -39,6 +69,12 @@ export function createMap(
     showAccuracyCircle: false,
   });
   map.addControl(geolocate, 'bottom-right');
+
+  let refresh: RefreshControl | null = null;
+  if (onRefresh) {
+    refresh = new RefreshControl(onRefresh);
+    map.addControl(refresh, 'bottom-right');
+  }
 
   const ready = new Promise<void>((resolve) => {
     map.on('load', () => {
@@ -97,7 +133,7 @@ export function createMap(
     });
   });
 
-  return { map, geolocate, ready };
+  return { map, geolocate, refresh, ready };
 }
 
 export function setPins(map: maplibregl.Map, pins: Pin[]): void {

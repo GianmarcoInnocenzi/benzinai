@@ -1,5 +1,7 @@
 import './style.css';
-import { allStations, ensureTiles, hasTiles, loadMeta, type Box } from './data';
+import { PROXY_URL } from './config';
+import { allStations, applySnapshot, ensureTiles, hasTiles, loadMeta, type Box } from './data';
+import { downloadPrices } from './update';
 import { loadState, matches, mountFilters, priceOf } from './filters';
 import { createMap, maplibregl, setPins, type Pin } from './map';
 import { FUELS, type Meta, type Station } from './types';
@@ -75,7 +77,7 @@ async function start() {
   const byId = new Map<number, Station>();
   let cheapest: Station | null = null;
 
-  const { map, geolocate, ready } = createMap(
+  const { map, geolocate, refresh, ready } = createMap(
     lastPosition().center,
     lastPosition().zoom,
     (id) => {
@@ -86,6 +88,8 @@ async function start() {
         .setDOMContent(popupContent(s))
         .addTo(map);
     },
+    // Il pulsante ↻ compare solo se è configurato il proxy per scaricare dal MIMIT.
+    PROXY_URL ? () => void refreshPrices() : undefined,
   );
 
   const render = () => {
@@ -170,9 +174,38 @@ async function start() {
   new ResizeObserver(syncBarHeight).observe(bar);
   syncBarHeight();
 
-  if (meta) {
+  let filtersMounted = false;
+  const mountFiltersOnce = () => {
+    if (!meta || filtersMounted) return;
     mountFilters(state, meta.brands, render);
-  }
+    filtersMounted = true;
+  };
+  mountFiltersOnce();
+
+  // Pulsante ↻: scarica i prezzi nuovi dal MIMIT (via proxy), li salva sul telefono
+  // e ricarica la zona visibile.
+  const refreshPrices = async () => {
+    refresh?.setBusy(true);
+    setStatus('Aggiorno i prezzi… (circa 8 MB)');
+    let note: string;
+    try {
+      const built = await downloadPrices();
+      if (meta && built.meta.updated < meta.updated) {
+        throw new Error(`il MIMIT ha dati più vecchi (${formatDate(built.meta.updated)})`);
+      }
+      const saved = await applySnapshot(built.meta, built.tiles);
+      meta = built.meta;
+      mountFiltersOnce();
+      await search();
+      note = `✓ Prezzi del ${formatDate(meta.updated)}${saved ? '' : ' (non salvati sul telefono)'}`;
+    } catch (e) {
+      note = `⚠ Aggiornamento non riuscito: ${e instanceof Error ? e.message : e}`;
+      render();
+    } finally {
+      refresh?.setBusy(false);
+    }
+    statusEl.textContent = `${note} · ${statusEl.textContent}`;
+  };
 
   statusEl.addEventListener('click', () => {
     if (cheapest) map.flyTo({ center: [cheapest.lo, cheapest.la], zoom: Math.max(map.getZoom(), 14) });
