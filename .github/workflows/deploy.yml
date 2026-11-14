@@ -30,8 +30,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Il sito del MIMIT spesso non risponde ai server di GitHub: in quel caso
+      # si usano i dati già presenti nel repo (public/data).
       - name: Scarica i prezzi MIMIT
         run: npm run data
+        continue-on-error: true
       - name: Build
         run: npm run build
       - uses: actions/configure-pages@v5
