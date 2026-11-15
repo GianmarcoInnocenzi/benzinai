@@ -29,8 +29,10 @@ export interface Pin {
 
 /** Zoom da cui compare l'anteprima dei prezzi sopra le palline. */
 export const PREVIEW_ZOOM = 13;
-/** Zoom da cui compare l'icona del marchio sotto le palline. */
-export const BRAND_ZOOM = 15;
+/** Zoom da cui compare l'icona del marchio sotto le palline (piccola da lontano, più grande da vicino). */
+export const BRAND_ZOOM = 12.5;
+/** Raggio (in pixel) attorno al tocco entro cui si prende il distributore più vicino. */
+const TAP_RADIUS = 24;
 
 // Etichette stilizzate nei colori tipici di ogni marchio (non sono i loghi ufficiali).
 const BRAND_BADGES: Record<string, { text: string; bg: string; fg: string }> = {
@@ -196,7 +198,7 @@ export function createMap(opts: MapOptions) {
         type: 'circle',
         source: SOURCE,
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 13, 8, 16, 11],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 5, 13, 9, 16, 12],
           // verde = tra i più economici della zona, arancione = nella media, rosso = tra i più cari
           'circle-color': [
             'case',
@@ -265,17 +267,46 @@ export function createMap(opts: MapOptions) {
             ['image', 'brand-Altri'],
           ],
           'icon-anchor': 'top',
-          'icon-offset': [0, 11],
+          'icon-offset': [0, 15],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 12.5, 0.5, 15, 0.8, 17, 1],
           'symbol-sort-key': ['get', 'price'],
         },
       });
 
-      map.on('click', 'pin', (e: maplibregl.MapLayerMouseEvent) => {
-        const id = e.features?.[0]?.properties?.id;
-        if (typeof id === 'number') opts.onPinClick(id);
+      // Il dito è molto più largo di una pallina: si cerca il distributore più vicino al tocco
+      // entro TAP_RADIUS pixel (pallina, prezzo o targhetta del marchio), non solo sotto il punto toccato.
+      const pinLayers = ['pin', 'pin-label', 'pin-preview', 'pin-brand'];
+      const nearestPin = (point: maplibregl.Point): number | null => {
+        const r = TAP_RADIUS;
+        const found = map.queryRenderedFeatures(
+          [
+            [point.x - r, point.y - r],
+            [point.x + r, point.y + r],
+          ],
+          { layers: pinLayers },
+        );
+        let bestId: number | null = null;
+        let bestDist = Infinity;
+        for (const f of found) {
+          const id = f.properties?.id;
+          if (typeof id !== 'number' || f.geometry.type !== 'Point') continue;
+          const [lng, lat] = f.geometry.coordinates as [number, number];
+          const p = map.project([lng, lat]);
+          const d = Math.hypot(p.x - point.x, p.y - point.y);
+          if (d < bestDist) {
+            bestDist = d;
+            bestId = id;
+          }
+        }
+        return bestId;
+      };
+      map.on('click', (e: maplibregl.MapMouseEvent) => {
+        const id = nearestPin(e.point);
+        if (id !== null) opts.onPinClick(id);
       });
-      map.on('mouseenter', 'pin', () => (map.getCanvas().style.cursor = 'pointer'));
-      map.on('mouseleave', 'pin', () => (map.getCanvas().style.cursor = ''));
+      map.on('mousemove', (e: maplibregl.MapMouseEvent) => {
+        map.getCanvas().style.cursor = nearestPin(e.point) !== null ? 'pointer' : '';
+      });
       resolve();
     });
   });
