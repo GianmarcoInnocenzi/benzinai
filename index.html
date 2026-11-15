@@ -58,6 +58,16 @@
       <p id="best-empty" class="hint" hidden></p>
     </section>
 
+    <div id="welcome" role="dialog" aria-modal="true" aria-labelledby="welcome-title" hidden>
+      <div class="card">
+        <button id="welcome-close" type="button" class="x" aria-label="Chiudi">×</button>
+        <h1 id="welcome-title">Che macchina hai?</h1>
+        <p>Scegli il carburante e ti mostro subito i prezzi giusti. Puoi cambiare tutto dai Filtri.</p>
+        <div id="welcome-fuels" class="fuel-grid"></div>
+        <button id="welcome-skip" type="button" class="link">Salta, mostrami tutti i distributori</button>
+      </div>
+    </div>
+
     <button id="toast" type="button" hidden></button>
 
     <script type="module" src="/src/main.ts"></script>

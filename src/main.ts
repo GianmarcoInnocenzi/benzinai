@@ -5,6 +5,7 @@ import { downloadPrices } from './update';
 import { mountBest, type BestItem } from './best';
 import { activeCount, emptyState, matches, mountFilters, priceOf } from './filters';
 import { createMap, maplibregl, setPins, type Pin } from './map';
+import { showWelcome } from './welcome';
 import { FUELS, type Fuel, type Meta, type Station } from './types';
 
 const MIN_ZOOM = 10; // sotto questo zoom non si caricano/mostrano i distributori
@@ -367,6 +368,17 @@ async function start() {
     }
     await search();
   });
+
+  // Riquadro iniziale: la scelta del carburante diventa il primo filtro. Si può chiudere senza scegliere.
+  if (meta) {
+    showWelcome((fuel) => {
+      state.fuel = fuel;
+      filters?.redraw();
+      best?.refresh();
+      // se i distributori non sono ancora arrivati, l'avviso con il riepilogo compare a fine ricerca
+      render(allStations().length > 0);
+    });
+  }
 
   await ready;
   map.on('moveend', onMove);

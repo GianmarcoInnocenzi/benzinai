@@ -48,7 +48,7 @@ export function mountFilters(
     /** chiamata quando l'utente apre il pannello */
     onOpen: () => void;
   },
-): { close: () => void } {
+): { close: () => void; redraw: () => void } {
   const panel = document.getElementById('filters-panel')!;
   const openBtn = document.getElementById('open-filters') as HTMLButtonElement;
   const closeBtn = document.getElementById('close-filters')!;
@@ -135,5 +135,5 @@ export function mountFilters(
   });
 
   draw();
-  return { close: () => show(false) };
+  return { close: () => show(false), redraw: draw };
 }
