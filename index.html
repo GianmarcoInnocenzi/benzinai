@@ -34,6 +34,16 @@
 
       <h2>Marchio</h2>
       <div id="brands" class="chips" role="group" aria-label="Marchi"></div>
+      <input
+        id="brand-search"
+        type="search"
+        list="brand-list"
+        placeholder="Cerca un altro marchio…"
+        autocomplete="off"
+        autocapitalize="off"
+        aria-label="Cerca un marchio"
+      />
+      <datalist id="brand-list"></datalist>
 
       <div class="actions">
         <button id="reset-filters" type="button">Azzera filtri</button>

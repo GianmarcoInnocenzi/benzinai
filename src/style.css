@@ -199,6 +199,18 @@ button {
   color: #fff;
 }
 
+#brand-search {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* 16px evita lo zoom automatico di Safari quando si tocca il campo */
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -358,6 +370,11 @@ button {
 
 .popup {
   font-size: 14px;
+}
+
+.popup .name {
+  font-size: 13px;
+  margin-top: 1px;
 }
 
 .popup .addr {

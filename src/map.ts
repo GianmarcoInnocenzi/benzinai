@@ -46,10 +46,20 @@ const BRAND_BADGES: Record<string, { text: string; bg: string; fg: string }> = {
   Altri: { text: '⛽', bg: '#E5E7EB', fg: '#111827' },
 };
 
-/** Disegna una targhetta arrotondata con il nome del marchio. */
+/** Colori stabili per i marchi meno noti: la stessa parola dà sempre lo stesso colore. */
+function colorsFor(name: string): { bg: string; fg: string } {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { bg: `hsl(${h % 360} 55% 36%)`, fg: '#FFFFFF' };
+}
+
+/** Disegna una targhetta arrotondata con il nome del marchio (larga quanto serve). */
 function brandBadge(text: string, bg: string, fg: string): ImageData {
-  const W = 88;
   const H = 40;
+  const font = (size: number) => `bold ${size}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
+  const probe = document.createElement('canvas').getContext('2d')!;
+  probe.font = font(22);
+  const W = Math.round(Math.min(168, Math.max(64, probe.measureText(text).width + 30)));
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -67,13 +77,19 @@ function brandBadge(text: string, bg: string, fg: string): ImageData {
   ctx.fillStyle = fg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  let size = 22;
-  do {
-    ctx.font = `bold ${size}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
-    size -= 2;
-  } while (ctx.measureText(text).width > W - 18 && size > 10);
+  ctx.font = font(22);
   ctx.fillText(text, W / 2, H / 2 + 1);
   return ctx.getImageData(0, 0, W, H);
+}
+
+/** Crea (una volta sola) la targhetta del marchio: colori noti per i principali, automatici per gli altri. */
+function ensureBrandImage(map: maplibregl.Map, name: string): void {
+  const id = `brand-${name}`;
+  if (map.hasImage(id)) return;
+  const known = BRAND_BADGES[name];
+  const short = name.length > 15 ? `${name.slice(0, 14)}…` : name;
+  const { text, bg, fg } = known ?? { text: short, ...colorsFor(name) };
+  map.addImage(id, brandBadge(text, bg, fg), { pixelRatio: 2 });
 }
 
 const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -187,9 +203,7 @@ export function createMap(opts: MapOptions) {
         layout: { visibility: satellite ? 'visible' : 'none' },
       });
 
-      for (const [name, b] of Object.entries(BRAND_BADGES)) {
-        map.addImage(`brand-${name}`, brandBadge(b.text, b.bg, b.fg), { pixelRatio: 2 });
-      }
+      for (const name of Object.keys(BRAND_BADGES)) ensureBrandImage(map, name);
 
       map.addSource(SOURCE, { type: 'geojson', data: empty });
 
@@ -315,6 +329,8 @@ export function createMap(opts: MapOptions) {
 }
 
 export function setPins(map: maplibregl.Map, pins: Pin[]): void {
+  // una targhetta per ogni marchio presente (i meno diffusi hanno colori automatici)
+  for (const brand of new Set(pins.map((p) => p.brand))) ensureBrandImage(map, brand);
   const src = map.getSource(SOURCE) as maplibregl.GeoJSONSource | undefined;
   src?.setData({
     type: 'FeatureCollection',

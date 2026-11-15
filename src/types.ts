@@ -38,6 +38,8 @@ export interface Meta {
   updated: string;
   /** lato delle tessere in gradi */
   tileSize: number;
-  /** marchi disponibili, in ordine di visualizzazione */
+  /** marchi mostrati come pulsanti nei filtri, in ordine di visualizzazione */
   brands: string[];
+  /** tutti i marchi presenti nei dati (per cercare un marchio meno diffuso) */
+  allBrands?: string[];
 }

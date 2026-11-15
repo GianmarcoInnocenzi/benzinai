@@ -57,10 +57,19 @@ function popupContent(s: Station): HTMLElement {
 
   const title = document.createElement('strong');
   title.textContent = `${s.b} · ${s.c}`;
+  // nome dell'impianto (spesso indica l'insegna reale, soprattutto per le pompe bianche)
+  const name = s.n && s.n.toLowerCase() !== s.b.toLowerCase() ? s.n : '';
   const addr = document.createElement('div');
   addr.className = 'addr';
   addr.textContent = s.a ? `${s.a}, ${s.c} (${s.pr})` : `${s.c} (${s.pr})`;
-  root.append(title, addr);
+  if (name) {
+    const sub = document.createElement('div');
+    sub.className = 'name';
+    sub.textContent = name;
+    root.append(title, sub, addr);
+  } else {
+    root.append(title, addr);
+  }
 
   const table = document.createElement('table');
   const head = table.insertRow();
@@ -268,7 +277,7 @@ async function start() {
   const mountPanelsOnce = () => {
     if (!meta || filters) return;
     // L'avviso con il riepilogo compare alla chiusura del pannello dei filtri, non mentre è aperto.
-    filters = mountFilters(state, meta.brands, {
+    filters = mountFilters(state, meta.brands, meta.allBrands ?? meta.brands, {
       onChange: () => {
         render();
         best?.refresh();

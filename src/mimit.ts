@@ -8,7 +8,10 @@ import type { Fuel, Meta, Prices, Station } from './types';
 /** Lato delle tessere geografiche, in gradi (~22 km in latitudine). */
 export const TILE_SIZE = 0.2;
 
-export const BRANDS = ['Eni', 'Q8', 'IP', 'Esso', 'Tamoil', 'Shell', 'Pompe bianche', 'Altri'];
+/** Marchi sempre presenti tra i pulsanti dei filtri, nell'ordine in cui compaiono. */
+export const MAIN_BRANDS = ['Eni', 'Q8', 'IP', 'Esso', 'Tamoil', 'Shell', 'Pompe bianche'];
+/** Quanti pulsanti marchio mostrare in tutto nei filtri (gli altri si cercano per nome). */
+const BRAND_CHIPS = 16;
 
 const FUEL_NAMES: Record<string, Fuel> = {
   Benzina: 'benzina',
@@ -17,16 +20,28 @@ const FUEL_NAMES: Record<string, Fuel> = {
   Metano: 'metano',
 };
 
+/** Nome leggibile: "KEROPETROL" -> "Keropetrol", le sigle corte (GNP, EOS) restano in maiuscolo. */
+function prettyBrand(raw: string): string {
+  const t = raw.replace(/\s+/g, ' ').trim();
+  if (t === '') return 'Altri';
+  const allCaps = /^[A-Z0-9 .&'’-]+$/.test(t) && /[A-Z]/.test(t);
+  if (allCaps && t.length > 4) {
+    return t.toLowerCase().replace(/(^|[\s.'’-])([a-zà-ù])/g, (_m, sep, ch) => sep + ch.toUpperCase());
+  }
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Marchio dalla colonna "Bandiera": quelli principali accorpati, gli altri col loro nome. */
 export function brandOf(raw: string): string {
   const s = raw.toLowerCase();
   if (/agip|\beni\b/.test(s)) return 'Eni';
-  if (/q8|kuwait/.test(s)) return 'Q8';
+  if (/\bq8\b|kuwait/.test(s)) return 'Q8';
   if (/\bip\b|\bapi\b|italiana petroli/.test(s)) return 'IP';
-  if (/esso/.test(s)) return 'Esso';
+  if (/^esso\b/.test(s)) return 'Esso';
   if (/tamoil/.test(s)) return 'Tamoil';
-  if (/shell/.test(s)) return 'Shell';
+  if (/^shell\b/.test(s)) return 'Shell';
   if (/pompe\s*bianche|pompebianche/.test(s)) return 'Pompe bianche';
-  return 'Altri';
+  return prettyBrand(raw);
 }
 
 export interface Csv {
@@ -102,6 +117,17 @@ export function buildTiles(anag: Csv, prezzi: Csv): Built {
     prices.set(id, p);
   }
 
+  // Varianti dello stesso marchio (maiuscole, punteggiatura) vanno sotto un solo nome.
+  const brandByKey = new Map<string, string>();
+  const canonicalBrand = (raw: string): string => {
+    const brand = brandOf(raw);
+    const key = brand.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const known = brandByKey.get(key);
+    if (known) return known;
+    brandByKey.set(key, brand);
+    return brand;
+  };
+
   const tiles = new Map<string, Station[]>();
   const perBrand: Record<string, number> = {};
   let stations = 0;
@@ -123,7 +149,7 @@ export function buildTiles(anag: Csv, prezzi: Csv): Built {
     }
     const station: Station = {
       id,
-      b: brandOf(r[2]),
+      b: canonicalBrand(r[2]),
       n: clean(r[4]),
       a: clean(r[5]),
       c: clean(r[6]),
@@ -140,8 +166,16 @@ export function buildTiles(anag: Csv, prezzi: Csv): Built {
     stations++;
   }
 
+  // Pulsanti dei filtri: i marchi principali più i più diffusi tra gli altri.
+  const others = Object.entries(perBrand)
+    .filter(([name]) => !MAIN_BRANDS.includes(name) && name !== 'Altri')
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name);
+  const chips = [...MAIN_BRANDS, ...others].slice(0, BRAND_CHIPS);
+  const allBrands = Object.keys(perBrand).sort((a, b) => a.localeCompare(b, 'it'));
+
   return {
-    meta: { updated: prezzi.date, tileSize: TILE_SIZE, brands: BRANDS },
+    meta: { updated: prezzi.date, tileSize: TILE_SIZE, brands: chips, allBrands },
     tiles,
     stats: { stations, badCoords, noPrices, badPrices, perBrand },
   };

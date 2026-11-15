@@ -40,6 +40,7 @@ export function button(label: string, active: boolean, onClick: () => void): HTM
 export function mountFilters(
   state: FilterState,
   brands: string[],
+  allBrands: string[],
   handlers: {
     onChange: (s: FilterState) => void;
     /** chiamata quando l'utente chiude il pannello */
@@ -55,6 +56,15 @@ export function mountFilters(
   const badge = document.getElementById('filter-count')!;
   const fuels = document.getElementById('fuels')!;
   const chips = document.getElementById('brands')!;
+  const search = document.getElementById('brand-search') as HTMLInputElement;
+  const brandList = document.getElementById('brand-list')!;
+  brandList.replaceChildren(
+    ...allBrands.map((b) => {
+      const o = document.createElement('option');
+      o.value = b;
+      return o;
+    }),
+  );
 
   /** Apre o chiude il pannello senza chiamare i gestori (uso interno e dall'esterno). */
   const show = (open: boolean) => {
@@ -80,8 +90,10 @@ export function mountFilters(
         }),
       ),
     );
+    // i pulsanti dei marchi più diffusi, più quelli scelti con la ricerca (per poterli togliere)
+    const shown = [...brands, ...state.brands.filter((b) => !brands.includes(b))];
     chips.replaceChildren(
-      ...brands.map((b) =>
+      ...shown.map((b) =>
         button(b, state.brands.includes(b), () => {
           state.brands = state.brands.includes(b)
             ? state.brands.filter((x) => x !== b)
@@ -100,6 +112,19 @@ export function mountFilters(
     draw();
     handlers.onChange(state);
   };
+
+  // Ricerca di un marchio meno diffuso: si scrive il nome (o parte) e si sceglie dall'elenco.
+  search.addEventListener('change', () => {
+    const q = search.value.trim().toLowerCase();
+    search.value = '';
+    if (q === '') return;
+    const matches = allBrands.filter((b) => b.toLowerCase() === q);
+    const found = matches.length > 0 ? matches : allBrands.filter((b) => b.toLowerCase().startsWith(q));
+    if (found.length === 1 && !state.brands.includes(found[0])) {
+      state.brands = [...state.brands, found[0]];
+      change();
+    }
+  });
 
   openBtn.addEventListener('click', () => userToggle(Boolean(panel.hidden)));
   closeBtn.addEventListener('click', () => userToggle(false));

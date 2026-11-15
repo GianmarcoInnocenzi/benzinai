@@ -34,6 +34,10 @@ export async function loadMeta(): Promise<Meta> {
     /* archivio locale non disponibile */
   }
 
+  // Un archivio salvato da una versione precedente (marchi raggruppati in "Altri") non va usato:
+  // basta toccare ↻ per scaricarlo di nuovo col formato nuovo.
+  if (local && !local.allBrands) local = null;
+
   if (local && (!remote || local.updated > remote.updated)) {
     useLocal = true;
     tileSize = local.tileSize;
