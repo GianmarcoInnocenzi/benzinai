@@ -167,13 +167,15 @@ async function start() {
     }
 
     // Fasce di colore: un terzo più economico = verde, un terzo centrale = arancione, un terzo più caro = rosso.
-    // Si confrontano i distributori visibili a schermo; se i prezzi differiscono di meno di 3 centesimi sono tutti verdi.
+    // Il confronto è con i distributori della ZONA attorno al centro della mappa (circa 40 km), non con quelli
+    // visibili a schermo: così il colore di un distributore non cambia zoomando. Se i prezzi della zona
+    // differiscono di meno di 3 centesimi sono tutti verdi.
     const bounds = map.getBounds();
     const inView = pins.filter((p) => bounds.contains([p.lng, p.lat]));
-    const sample = (inView.length > 0 ? inView : pins)
-      .filter((p) => p.price !== null)
-      .map((p) => p.price!)
-      .sort((a, z) => a - z);
+    const c = map.getCenter();
+    const priced = pins.filter((p) => p.price !== null);
+    const near = priced.filter((p) => Math.abs(p.lng - c.lng) < 0.35 && Math.abs(p.lat - c.lat) < 0.35);
+    const sample = (near.length >= 8 ? near : priced).map((p) => p.price!).sort((a, z) => a - z);
     const flat = sample.length < 2 || sample[sample.length - 1] - sample[0] < 0.03;
     const rank = (price: number): number => {
       let below = 0;
