@@ -29,8 +29,8 @@ export interface Pin {
 
 /** Zoom da cui compare l'anteprima dei prezzi sopra le palline. */
 export const PREVIEW_ZOOM = 13;
-/** Zoom da cui compare l'icona del marchio sotto le palline (piccola da lontano, più grande da vicino). */
-export const BRAND_ZOOM = 12.5;
+/** Zoom da cui compare l'icona del marchio sotto le palline: lo stesso da cui compaiono i distributori. */
+export const BRAND_ZOOM = 10;
 /** Raggio (in pixel) attorno al tocco entro cui si prende il distributore più vicino. */
 const TAP_RADIUS = 24;
 
@@ -268,7 +268,7 @@ export function createMap(opts: MapOptions) {
           ],
           'icon-anchor': 'top',
           'icon-offset': [0, 15],
-          'icon-size': ['interpolate', ['linear'], ['zoom'], 12.5, 0.5, 15, 0.8, 17, 1],
+          'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.42, 12.5, 0.55, 15, 0.8, 17, 1],
           'symbol-sort-key': ['get', 'price'],
         },
       });
