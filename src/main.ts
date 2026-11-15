@@ -1,6 +1,6 @@
 import './style.css';
 import { PROXY_URL } from './config';
-import { allStations, applySnapshot, ensureTiles, loadMeta, type Box } from './data';
+import { allStations, applySnapshot, ensureTiles, hasTiles, loadMeta, type Box } from './data';
 import { downloadPrices } from './update';
 import { mountBest, type BestItem } from './best';
 import { activeCount, emptyState, matches, mountFilters, priceOf } from './filters';
@@ -146,30 +146,44 @@ async function start() {
       return;
     }
 
+    // Il colore dei pin segue il prezzo del carburante scelto; se non ce n'è uno, quello della benzina.
+    const colorFuel: Fuel = state.fuel ?? 'benzina';
     const pins: Pin[] = [];
     byId.clear();
     for (const s of allStations()) {
       if (!matches(s, state)) continue;
       byId.set(s.id, s);
+      const price = priceOf(s, colorFuel);
       pins.push({
         id: s.id,
         lng: s.lo,
         lat: s.la,
-        price: state.fuel ? priceOf(s, state.fuel) : null,
+        price,
         t: -1,
+        label: state.fuel && price !== null ? price.toFixed(3) : '',
         preview: state.fuel ? '' : previewOf(s),
+        brand: s.b,
       });
     }
 
-    // La scala dei colori si calcola sui distributori visibili a schermo.
+    // Fasce di colore: un terzo più economico = verde, un terzo centrale = arancione, un terzo più caro = rosso.
+    // Si confrontano i distributori visibili a schermo; se i prezzi differiscono di meno di 3 centesimi sono tutti verdi.
     const bounds = map.getBounds();
     const inView = pins.filter((p) => bounds.contains([p.lng, p.lat]));
-    const priced = (inView.length > 0 ? inView : pins).filter((p) => p.price !== null);
-    const min = Math.min(...priced.map((p) => p.price!));
-    const max = Math.max(...priced.map((p) => p.price!));
+    const sample = (inView.length > 0 ? inView : pins)
+      .filter((p) => p.price !== null)
+      .map((p) => p.price!)
+      .sort((a, z) => a - z);
+    const flat = sample.length < 2 || sample[sample.length - 1] - sample[0] < 0.03;
+    const rank = (price: number): number => {
+      let below = 0;
+      while (below < sample.length && sample[below] < price) below++;
+      let upTo = below;
+      while (upTo < sample.length && sample[upTo] === price) upTo++;
+      return Math.min(1, (below + (upTo - below - 1) / 2) / (sample.length - 1));
+    };
     for (const p of pins) {
-      if (p.price === null) continue;
-      p.t = max > min ? Math.min(1, Math.max(0, (p.price - min) / (max - min))) : 0;
+      if (p.price !== null) p.t = flat ? 0 : rank(p.price);
     }
     setPins(map, pins);
 
@@ -310,14 +324,23 @@ async function start() {
     toastEl.hidden = true;
   });
 
+  // La posizione arriva di continuo (il pallino blu si muove mentre guidi). Si cerca subito alla
+  // prima posizione e poi solo quando si entra in una zona non ancora caricata.
+  let firstFix = true;
+  let lastSaved = 0;
   geolocate.on('geolocate', (e: { coords: GeolocationCoordinates }) => {
-    // Posizione trovata: cerca subito lì, senza dover premere "Cerca qui".
     const { longitude: x, latitude: y } = e.coords;
-    void search({ west: x - 0.2, east: x + 0.2, south: y - 0.2, north: y + 0.2 });
-    try {
-      localStorage.setItem(LAST_POS, JSON.stringify({ lng: x, lat: y }));
-    } catch {
-      /* ignora */
+    const box: Box = { west: x - 0.2, east: x + 0.2, south: y - 0.2, north: y + 0.2 };
+    if (firstFix || !hasTiles(box)) void search(box, firstFix);
+    firstFix = false;
+    const now = Date.now();
+    if (now - lastSaved > 15000) {
+      lastSaved = now;
+      try {
+        localStorage.setItem(LAST_POS, JSON.stringify({ lng: x, lat: y }));
+      } catch {
+        /* ignora */
+      }
     }
   });
   geolocate.on('error', () => toast('Posizione non disponibile: muovi la mappa a mano', 6000));
@@ -336,11 +359,18 @@ async function start() {
 
   await ready;
   map.on('moveend', onMove);
-  geolocate.trigger();
-  if (map.getZoom() >= MIN_ZOOM) await search();
-  else {
+  // Prima si caricano i distributori della zona dove si trova la mappa, poi parte la posizione:
+  // un errore del GPS non deve mai bloccare la ricerca.
+  if (map.getZoom() >= MIN_ZOOM) {
+    await search();
+  } else {
     render();
     toast('Attiva la posizione o avvicina la mappa e premi "Cerca qui"', 6000);
+  }
+  try {
+    geolocate.trigger();
+  } catch (e) {
+    console.warn('Posizione non avviata', e);
   }
 }
 

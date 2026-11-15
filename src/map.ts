@@ -15,16 +15,64 @@ export interface Pin {
   id: number;
   lng: number;
   lat: number;
-  /** null = nessun carburante scelto: il pin non mostra il prezzo */
+  /** prezzo usato per colore e precedenza; null = non disponibile */
   price: number | null;
-  /** 0 = il più economico visibile, 1 = il più caro, -1 = senza prezzo */
+  /** posizione del prezzo nella zona: 0 = tra i più economici, 1 = tra i più cari, -1 = senza prezzo */
   t: number;
+  /** prezzo scritto sopra la pallina (solo se è scelto un carburante) */
+  label: string;
+  /** marchio normalizzato (Eni, Q8, ...): decide l'icona che compare da vicino */
+  brand: string;
   /** anteprima dei prezzi (una riga per carburante), mostrata da vicino quando non c'è un carburante scelto */
   preview: string;
 }
 
 /** Zoom da cui compare l'anteprima dei prezzi sopra le palline. */
 export const PREVIEW_ZOOM = 13;
+/** Zoom da cui compare l'icona del marchio sotto le palline. */
+export const BRAND_ZOOM = 15;
+
+// Etichette stilizzate nei colori tipici di ogni marchio (non sono i loghi ufficiali).
+const BRAND_BADGES: Record<string, { text: string; bg: string; fg: string }> = {
+  Eni: { text: 'eni', bg: '#FFD500', fg: '#111111' },
+  Q8: { text: 'Q8', bg: '#0B3D91', fg: '#FFC72C' },
+  IP: { text: 'IP', bg: '#E30613', fg: '#FFFFFF' },
+  Esso: { text: 'Esso', bg: '#0057B8', fg: '#FFFFFF' },
+  Tamoil: { text: 'Tamoil', bg: '#003399', fg: '#FFFFFF' },
+  Shell: { text: 'Shell', bg: '#FBCE07', fg: '#DD1D21' },
+  'Pompe bianche': { text: 'P.B.', bg: '#E5E7EB', fg: '#111827' },
+  Altri: { text: '⛽', bg: '#E5E7EB', fg: '#111827' },
+};
+
+/** Disegna una targhetta arrotondata con il nome del marchio. */
+function brandBadge(text: string, bg: string, fg: string): ImageData {
+  const W = 88;
+  const H = 40;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  const rounded = (x: number, y: number, w: number, h: number, r: number) => {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+  };
+  ctx.fillStyle = '#FFFFFF'; // bordo bianco: resta leggibile su mappa e satellite
+  rounded(0, 0, W, H, 14);
+  ctx.fill();
+  ctx.fillStyle = bg;
+  rounded(3, 3, W - 6, H - 6, 11);
+  ctx.fill();
+  ctx.fillStyle = fg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  let size = 22;
+  do {
+    ctx.font = `bold ${size}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
+    size -= 2;
+  } while (ctx.measureText(text).width > W - 18 && size > 10);
+  ctx.fillText(text, W / 2, H / 2 + 1);
+  return ctx.getImageData(0, 0, W, H);
+}
 
 const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
@@ -86,9 +134,11 @@ export function createMap(opts: MapOptions) {
   });
 
   const geolocate = new maplibregl.GeolocateControl({
-    positionOptions: { enableHighAccuracy: true, timeout: 15000 },
-    fitBoundsOptions: { maxZoom: 13 },
-    trackUserLocation: false,
+    positionOptions: { enableHighAccuracy: true, timeout: 20000, maximumAge: 2000 },
+    fitBoundsOptions: { maxZoom: 15 },
+    // Segue la posizione in continuo: il pallino blu si muove mentre guidi e la mappa lo segue.
+    // Se sposti la mappa a mano smette di seguirti; un tocco sul pulsante ricomincia.
+    trackUserLocation: true,
     showAccuracyCircle: false,
   });
   map.addControl(geolocate, 'bottom-right');
@@ -135,6 +185,10 @@ export function createMap(opts: MapOptions) {
         layout: { visibility: satellite ? 'visible' : 'none' },
       });
 
+      for (const [name, b] of Object.entries(BRAND_BADGES)) {
+        map.addImage(`brand-${name}`, brandBadge(b.text, b.bg, b.fg), { pixelRatio: 2 });
+      }
+
       map.addSource(SOURCE, { type: 'geojson', data: empty });
 
       map.addLayer({
@@ -143,21 +197,12 @@ export function createMap(opts: MapOptions) {
         source: SOURCE,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 13, 8, 16, 11],
+          // verde = tra i più economici della zona, arancione = nella media, rosso = tra i più cari
           'circle-color': [
             'case',
             ['<', ['get', 't'], 0],
-            '#0f766e', // senza prezzo: colore dell'app
-            [
-              'interpolate',
-              ['linear'],
-              ['get', 't'],
-              0,
-              '#16a34a',
-              0.5,
-              '#eab308',
-              1,
-              '#dc2626',
-            ],
+            '#6b7280', // prezzo non disponibile
+            ['step', ['get', 't'], '#16a34a', 0.34, '#f97316', 0.67, '#dc2626'],
           ],
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
@@ -207,6 +252,24 @@ export function createMap(opts: MapOptions) {
         },
       });
 
+      // Da molto vicino: targhetta del marchio sotto la pallina.
+      map.addLayer({
+        id: 'pin-brand',
+        type: 'symbol',
+        source: SOURCE,
+        minzoom: BRAND_ZOOM,
+        layout: {
+          'icon-image': [
+            'coalesce',
+            ['image', ['concat', 'brand-', ['get', 'brand']]],
+            ['image', 'brand-Altri'],
+          ],
+          'icon-anchor': 'top',
+          'icon-offset': [0, 11],
+          'symbol-sort-key': ['get', 'price'],
+        },
+      });
+
       map.on('click', 'pin', (e: maplibregl.MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id;
         if (typeof id === 'number') opts.onPinClick(id);
@@ -231,8 +294,9 @@ export function setPins(map: maplibregl.Map, pins: Pin[]): void {
         id: p.id,
         price: p.price ?? 0,
         t: p.t,
-        label: p.price === null ? '' : p.price.toFixed(3),
+        label: p.label,
         preview: p.preview,
+        brand: p.brand,
       },
     })),
   });
